@@ -92,6 +92,7 @@ typedef struct {
 	int          mirror;       /* image.mirror: sensor H reverse */
 	int          flip;         /* image.flip:   sensor V reverse */
 	int          sns_id;       /* this sensor's id for the ISP bind */
+	int          mode_index;   /* sensor mode table index -> pub.sns_mode */
 } Cv610PipelineRuntimeConfig;
 
 static volatile sig_atomic_t g_stop;
@@ -528,7 +529,10 @@ static int isp_setup(const Cv610PipelineRuntimeConfig *c)
 	 * driver comment warns about. */
 	pub.bayer_format    = (ot_isp_bayer_format)c->bayer;
 	pub.wdr_mode        = OT_WDR_MODE_NONE;
-	pub.sns_mode        = 0;
+	/* The mode table index, not zero.  IMX662's driver derives its img_mode
+	 * from fps and ignores this; IMX335's uses it as a hint so modes that
+	 * share a frame rate (2592x1944 @30 and 2592x1520 @30) stay exact. */
+	pub.sns_mode        = (td_u32)c->mode_index;
 
 	/* Tell the ISP which registered 3A libs and which sensor this pipe uses;
 	 * without it isp_mem_init cannot resolve the sensor and fails NOT_CFG. */
@@ -835,6 +839,7 @@ int cv610_pipeline_start(const Cv610PipelineConfig *config)
 			(int)config->sns_type);
 		return -1;
 	}
+	c.mode_index = config->mode_index;
 	g_stop = 0;
 
 	printf("== cv610 sys/vb ==\n");

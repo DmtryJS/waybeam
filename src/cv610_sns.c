@@ -18,6 +18,9 @@ static const struct Cv610SnsInfo g_sns_info[SNS_TYPE_MAX] = {
 	[SNS_TYPE_IMX662] = {
 		"imx662", "imx662", "g_sns_imx662_obj", 662,
 	},
+	[SNS_TYPE_IMX335] = {
+		"imx335", "imx335", "g_sns_imx335_obj", 335,
+	},
 };
 
 /* The part a craft with no usable hint comes up as: the one this backend has

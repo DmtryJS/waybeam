@@ -107,7 +107,7 @@ Response `200`:
 {
   "ok": true,
   "data": {
-    "app_version": "0.85.0",
+    "app_version": "0.86.0",
     "contract_version": "0.31.0",
     "config_schema_version": "1.0.0",
     "backend": "star6e"
@@ -1744,9 +1744,13 @@ Every other mode then runs at the wrong rate, scaled by the clock ratio
 `framesSent` in `/api/v1/transport/status`.
 
 CV610 preserves the same envelope and `selected_pad` / `selected_mode` /
-`pads[].modes[]` shape. Its initial IMX662 backend reports one synthetic pad
-containing the four supported fixed-rate modes (1080p30/60 RAW12 and
-1080p90/100 RAW10); each entry has equal `min_fps` and `max_fps`.
+`pads[].modes[]` shape. It reports one synthetic pad generated from the mode
+table of the sensor the backend resolved from the system (see
+`docs/CV610_BACKEND.md` § Sensor selection); each entry has equal `min_fps`
+and `max_fps`. The IMX662 table holds the four supported fixed-rate modes,
+1080p30/60 RAW12 and 1080p90/100 RAW10. The IMX335 table holds five fixed
+modes, indices 0..4: 2592x1944@30 RAW12, 1296x972 2x2 binning@60, 1920x1080
+crop@90, 2592x1944@40 RAW10 and 2592x1520 crop@30 RAW10.
 
 `selected_pad` / `selected_mode` are what bring-up **actually selected**, not
 what the config asks for — the backend publishes them once the pipeline is

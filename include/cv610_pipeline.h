@@ -9,6 +9,10 @@ typedef struct {
 	/* Which sensor plugin to dlopen and which ISP sns_id to bind.  Set from
 	 * the system hint by cv610_prepare(). */
 	Cv610SnsType sns_type;
+	/* The resolved mode's table index, handed to the sensor as the
+	 * pub.sns_mode hint so IMX335 modes that share a frame rate (2592x1944
+	 * @30 vs 2592x1520 @30) stay distinguishable. */
+	int mode_index;
 	/* Sensor capture geometry (what VI and the ISP see). */
 	uint32_t width;
 	uint32_t height;

@@ -393,6 +393,7 @@ stage: build qr-decode
 			CV610_CC="$(CV610_CC)" CV610_SDK_INC="$(CV610_SDK_INC)"; \
 		mkdir -p $(OUT_DIR)/sensors; \
 		cp -f sensors/cv610/imx662/libsns_imx662.so $(OUT_DIR)/sensors/; \
+		cp -f sensors/cv610/imx335/libsns_imx335.so $(OUT_DIR)/sensors/; \
 		cp -f config/waybeam.default.cv610.json $(OUT_DIR)/waybeam.json; \
 		cp -f init.d/S95waybeam.cv610 $(OUT_DIR)/S95waybeam; \
 		chmod +x $(OUT_DIR)/S95waybeam; \
@@ -593,6 +594,8 @@ cv610-sdk: toolchain-cv610
 sensor-cv610: cv610-sdk
 	$(MAKE) -C sensors/cv610/imx662 \
 		CV610_CC="$(CV610_CC_SUBMAKE)" CV610_SDK_INC="$(abspath $(CV610_SDK_INC))"
+	$(MAKE) -C sensors/cv610/imx335 \
+		CV610_CC="$(CV610_CC_SUBMAKE)" CV610_SDK_INC="$(abspath $(CV610_SDK_INC))"
 
 # ── Maruko drivers ────────────────────────────────────────────────────
 #
@@ -740,3 +743,4 @@ clean:
 	rm -f $(QR_HOST_DECODE)
 	rm -f .build_soc
 	$(MAKE) -C sensors/cv610/imx662 clean
+	$(MAKE) -C sensors/cv610/imx335 clean

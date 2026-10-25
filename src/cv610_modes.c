@@ -9,9 +9,9 @@
  * The table INDEX is load-bearing: it is written to the sensor's
  * sns_mode hint (via pub.sns_mode) and the plugin's cmos_isp_set_image_mode()
  * uses it to pick its own img_mode.  So each row must keep the same index as
- * the matching IMX662_*_MODE enum in the plugin.  Only fixed modes are
- * listed; the flexible window crop (plugin img_mode 5) is deliberately absent
- * until its arbitrary-geometry bring-up is wired through.
+ * the matching IMX335_*_MODE / IMX662_*_MODE enum in the plugin.  Only fixed
+ * modes are listed; IMX335's flexible window crop (plugin img_mode 5) is
+ * deliberately absent until its arbitrary-geometry bring-up is wired through.
  */
 
 /* ---- IMX662: 1920x1080, four rates --------------------------------------
@@ -32,9 +32,40 @@ static const Cv610SensorMode g_imx662_modes[] = {
 	{ 1920, 1080, 100, 10, 27000000u, "1080p100 RAW10" },
 };
 
+/* ---- IMX335: 2592x1944 and crops, five rates ---------------------------
+ *
+ * IMX335 runs natively on a 37.125 MHz MCLK, so every fixed mode shares the
+ * same clock.  Indices match IMX335_*_MODE in the plugin's imx335_cmos.h:
+ *
+ *   0 2592x1944 12-bit linear @30
+ *   1 1296x972  10-bit 2x2 binning @60  (driver allows up to 76)
+ *   2 1920x1080 10-bit crop @90
+ *   3 2592x1944 10-bit full @40
+ *   4 2592x1520 10-bit crop @30
+ *
+ * The driver's cmos_isp_set_image_mode() takes the table index as its
+ * sns_mode hint when the requested fps is inside the mode's own min..max, so
+ * @30 is unambiguous between modes 0 and 4 even though they share a rate.
+ *
+ * These are the rates the timing reaches, not what the plugin's enum names
+ * say: IMX335_60FPS_CROPPED_1080P_MODE runs at 90 and
+ * IMX335_60FPS_FULL_1944P_MODE at 40.  The names are historical; this table
+ * is what /api/v1/modes advertises and what the validator accepts. */
+static const Cv610SensorMode g_imx335_modes[] = {
+	{ 2592, 1944, 30, 12, 37125000u, "2592x1944 30 RAW12" },
+	{ 1296,  972, 60, 10, 37125000u, "1296x972 60 RAW10 binning" },
+	{ 1920, 1080, 90, 10, 37125000u, "1080p 90 RAW10 crop" },
+	{ 2592, 1944, 40, 10, 37125000u, "2592x1944 40 RAW10" },
+	{ 2592, 1520, 30, 10, 37125000u, "2592x1520 30 RAW10 crop" },
+};
+
 static const Cv610SensorMode *table_for(Cv610SnsType type, size_t *count)
 {
 	switch (type) {
+	case SNS_TYPE_IMX335:
+		if (count)
+			*count = sizeof(g_imx335_modes) / sizeof(g_imx335_modes[0]);
+		return g_imx335_modes;
 	case SNS_TYPE_IMX662:
 	default:
 		/* Unknown falls back to IMX662: a caller that resolved its config

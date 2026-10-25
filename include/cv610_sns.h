@@ -23,7 +23,8 @@
 typedef enum {
 	SNS_TYPE_UNKNOWN = -1,
 	SNS_TYPE_IMX662 = 0,   /* 1920x1080, 4 modes */
-	SNS_TYPE_MAX = 1
+	SNS_TYPE_IMX335 = 1,   /* 2592x1944 and crops, 5 modes */
+	SNS_TYPE_MAX = 2
 } Cv610SnsType;
 
 /* Exact-name lookup, case-insensitive.  NULL, "" and an unknown name all
@@ -74,8 +75,8 @@ void cv610_sns_effective_reset(void);
 /* Human-readable source for logs.  Never NULL. */
 const char *cv610_sns_source_name(Cv610SnsSource src);
 
-/* Table name ("imx662"), used in logs.  Never NULL for a known type; NULL for
- * SNS_TYPE_UNKNOWN. */
+/* Table name ("imx662"/"imx335"), used in logs.  Never NULL for a known type;
+ * NULL for SNS_TYPE_UNKNOWN. */
 const char *cv610_sns_get_name(Cv610SnsType type);
 
 /* The dlopen'd plugin file's base name (libsns_<suffix>.so). */

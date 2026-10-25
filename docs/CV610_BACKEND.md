@@ -1,4 +1,4 @@
-# CV610 + IMX662 backend
+# CV610 + IMX662/IMX335 backend
 
 Tracking: #220
 
@@ -245,6 +245,35 @@ by `/api/v1/modes` is what the sensor captures, not the encoded size.
 A zero `video0.size` (`auto`) means the mode's own capture size. A half-set
 one (`1920x0`) is rejected rather than completed — it is a typo, not a
 request.
+
+### IMX335 profile
+
+`src/cv610_sns.c` naming `imx335` — which the system reports for a craft with
+that part fitted — selects the second table, `g_imx335_modes[]`, and the
+plugin at `/usr/lib/sensors/libsns_imx335.so`. This part runs from the
+native 37.125 MHz MCLK and every fixed mode shares that clock, so no
+`sns0_clk_hz` write is needed for any of them:
+
+| idx | capture | rate | RAW |
+|---|---|---|---|
+| 0 | 2592x1944 | 30 | 12 |
+| 1 | 1296x972 (2x2 binning) | 60 | 10 |
+| 2 | 1920x1080 crop | 90 | 10 |
+| 3 | 2592x1944 | 40 | 10 |
+| 4 | 2592x1520 crop | 30 | 10 |
+
+These are the rates the T6 crop timing reaches. The plugin's
+`IMX335_60FPS_*` enum names are historical and do not describe the rate:
+mode 2 runs at 90 fps and mode 3 at 40. Modes 0 and 4 share 30 fps, which is
+exactly why the resolved table index is handed to the sensor as
+`pub.sns_mode` — the frame rate alone cannot tell them apart.
+`IMX335_CROP_FLEX_LINEAR_MODE` (5) is implemented in the plugin but not
+advertised, because the validator cannot express an arbitrary window yet.
+
+Unlike the IMX662 table, this one is not mirror-verified against a
+sensor-side original in the same repository: the driver came from the T6
+work (upstreamed to OpenIPC/openhisilicon as #270) and
+`sensors/cv610/imx335/README.md` records the provenance and the IQ caveats.
 
 ## Sensor clock
 

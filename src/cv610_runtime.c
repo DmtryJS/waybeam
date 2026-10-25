@@ -2220,6 +2220,7 @@ static int cv610_prepare(void *opaque)
 	 * contract star6e_pipeline.c fulfils after sensor_select(). */
 	venc_api_set_sensor_info(0, mode_index, cfg->sensor.index);
 	ctx->pipeline.sns_type = sns_type;
+	ctx->pipeline.mode_index = mode_index;
 	ctx->pipeline.width = mode->width;
 	ctx->pipeline.height = mode->height;
 	cv610_mode_resolve_output(mode, cfg->video0.width, cfg->video0.height,

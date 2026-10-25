@@ -20,8 +20,9 @@ Three build-time SoC backends share one source tree:
 
 - **Star6E** — SigmaStar Infinity6E (SSC30KQ, SSC338Q).
 - **Maruko** — SigmaStar Infinity6C (SSC378QE).
-- **CV610** — HiSilicon Hi3516CV610 with Sony IMX662 (initial streaming
-  backend; advanced controls are being added in phases under #220).
+- **CV610** — HiSilicon Hi3516CV610 with Sony IMX662 or IMX335, the part
+  picked by config (initial streaming backend; advanced controls are being
+  added in phases under #220).
 
 Each binary is produced from the same `make build` invocation with
 different `SOC_BUILD=` flags. SigmaStar MI vendor libraries are loaded via
@@ -107,6 +108,29 @@ Run host tests:
 ```sh
 make test-ci
 ```
+
+### CV610: choosing the sensor
+
+The CV610 backend serves more than one Sony part from a single binary: the
+plugin is `dlopen`ed at bring-up, so which part runs is a system fact, not a
+config or build-time one. `make stage SOC_BUILD=cv610` stages every plugin
+into `out/cv610/sensors/` (`libsns_imx662.so`, `libsns_imx335.so`), and the
+part the firmware reports (`$SENSOR`, the u-boot env, `ipcinfo`) picks the
+one to load — see `docs/CV610_BACKEND.md` § Sensor selection. There is no
+`sensor.sensorType` field to set:
+
+```sh
+fw_printenv -n sensor     # what the craft will run, e.g. imx335
+```
+
+No hint keeps the historical default (IMX662) — which needs
+`libsns_imx662.so` on the device, and a stock CV610 rootfs does not ship it,
+so a hint that names a part is what makes the bring-up succeed. A hint this
+binary has no plugin for falls back to the default with a WARN rather than
+refusing to start. `GET /api/v1/modes` reports the modes of the sensor
+actually brought up. Per-sensor modes and the IMX335 profile live in
+`docs/CV610_BACKEND.md`; plugin internals and IQ caveats are in
+`sensors/cv610/imx335/README.md`.
 
 ## Deployment
 
@@ -305,7 +329,8 @@ omitted fields keep their compiled-in defaults.
   toggle.
 - **`sensor`** — pad/mode selection (-1 = auto). On CV610 the sensor part
   itself is not a config choice: it is resolved from what the system reports
-  (see `docs/CV610_BACKEND.md` § Sensor selection).
+  (see `docs/CV610_BACKEND.md` § Sensor selection), which is what tells the
+  backend whether to run the IMX662's four modes or the IMX335's five.
 - **`isp`** — ISP tuning bin path, AE engine selector
   (`aeEngine="sdk"` lets the SDK firmware run AE, `"custom"` runs
   userspace cus3a; on Maruko `custom` additionally installs the no-op
@@ -393,7 +418,7 @@ curl http://<device-ip>:<port>/api/v1/version
 ```
 
 ```json
-{"ok":true,"data":{"app_version":"0.85.0","backend":"star6e","contract_version":"0.31.0","config_schema_version":"1.0.0"}}
+{"ok":true,"data":{"app_version":"0.86.0","backend":"star6e","contract_version":"0.31.0","config_schema_version":"1.0.0"}}
 ```
 
 #### GET /api/v1/config

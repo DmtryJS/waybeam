@@ -179,26 +179,42 @@ static int test_mode_select(void)
 	return failures;
 }
 
-/* The CV610 backend takes its sensor from the system, not from a config field.
- * Pin the table shape, the name resolution and the hint chain: a craft whose
- * u-boot env names a part this binary cannot serve must still come up on the
- * historical default, and one whose hint names a part that is in the table
- * must come up as that part. */
+/* The CV610 backend now serves two Sony parts and takes the part from the
+ * system rather than from a config field.  Pin the table shapes, the name
+ * resolution and the hint chain: a craft whose hint names a part this binary
+ * knows must come up as that part, and one whose hint names a part it has no
+ * plugin for must still come up -- on the historical default, with a warning. */
 static int test_sns_types(void)
 {
-	const char *orig = getenv("SENSOR");
+	/* Copy, do not keep the getenv pointer: setenv() may reallocate environ
+	 * and leave it dangling, which would restore the wrong sensor. */
+	char orig[32] = "";
+	const char *env_sensor = getenv("SENSOR");
 	const Cv610SensorMode *m662;
+	const Cv610SensorMode *m335;
 	Cv610SnsType t = SNS_TYPE_UNKNOWN;
 	Cv610SnsSource src = CV610_SRC_DEFAULT;
 	char hint[32] = "";
-	size_t c662 = 0;
+	size_t c662 = 0, c335 = 0;
 	VencConfig cfg;
 	int failures = 0;
 
 	m662 = cv610_mode_table(SNS_TYPE_IMX662, &c662);
+	m335 = cv610_mode_table(SNS_TYPE_IMX335, &c335);
 	failures += expect("sns_662_table", m662 != NULL && c662 == 4);
+	failures += expect("sns_335_table", m335 != NULL && c335 == 5);
+	failures += expect("sns_335_native_2592x1944",
+		m335[0].width == 2592 && m335[0].height == 1944 &&
+		m335[0].raw_bit == 12);
+	failures += expect("sns_335_1520p_at_30",
+		m335[4].height == 1520 && m335[4].fps == 30);
+	/* 2592x1944 @30 and 2592x1520 @30 share a rate; the sns_mode hint is what
+	 * keeps them apart, so the selector must resolve by index. */
+	failures += expect("sns_335_mode4_forced",
+		cv610_mode_select(SNS_TYPE_IMX335, 4, 30, NULL) == &m335[4]);
 	failures += expect("sns_name_case_insensitive",
-		cv610_sns_from_name("IMX662") == SNS_TYPE_IMX662);
+		cv610_sns_from_name("IMX662") == SNS_TYPE_IMX662 &&
+		cv610_sns_from_name("IMX335") == SNS_TYPE_IMX335);
 	failures += expect("sns_name_empty_unknown",
 		cv610_sns_from_name("") == SNS_TYPE_UNKNOWN &&
 		cv610_sns_from_name(NULL) == SNS_TYPE_UNKNOWN);
@@ -207,8 +223,8 @@ static int test_sns_types(void)
 	/* Pure resolver: a usable hint wins, an absent or unusable one lands on
 	 * the default with a status the caller warns on instead of refusing. */
 	failures += expect("sns_hint_used",
-		cv610_sns_resolve_hint("imx662", CV610_SRC_UBOOT, &t, &src) == 0 &&
-		t == SNS_TYPE_IMX662 && src == CV610_SRC_UBOOT);
+		cv610_sns_resolve_hint("imx335", CV610_SRC_UBOOT, &t, &src) == 0 &&
+		t == SNS_TYPE_IMX335 && src == CV610_SRC_UBOOT);
 	failures += expect("sns_hint_empty_default",
 		cv610_sns_resolve_hint("", CV610_SRC_DEFAULT, &t, &src) == 1 &&
 		t == SNS_TYPE_IMX662 && src == CV610_SRC_DEFAULT);
@@ -226,16 +242,23 @@ static int test_sns_types(void)
 	/* Only the getenv branch of the hint chain can run here without forking;
 	 * fw_printenv and ipcinfo are exercised on a craft.  The trailing newline
 	 * is what an env value or a command substitution typically carries. */
-	setenv("SENSOR", "imx662\n", 1);
+	setenv("SENSOR", "imx335\n", 1);
 	cv610_sns_effective_reset();
 	failures += expect("sns_effective_from_env",
 		cv610_sns_effective(&t, &src, hint, sizeof(hint)) == 0 &&
-		t == SNS_TYPE_IMX662 && src == CV610_SRC_ENV &&
-		strcmp(hint, "imx662") == 0);
-	/* The cached answer is what validation reads, so pin the two of them
-	 * together: the config still has no sensor field at all. */
+		t == SNS_TYPE_IMX335 && src == CV610_SRC_ENV &&
+		strcmp(hint, "imx335") == 0);
+	/* The cached answer is what validation reads, so pin the two together:
+	 * mode 4 only exists in the IMX335 table, and the config still carries no
+	 * sensor field at all. */
 	venc_config_defaults(&cfg);
-	failures += expect_valid("sns_validate_with_hint", &cfg, 1);
+	cfg.sensor.mode = 4;
+	failures += expect_valid("sns_validate_335_mode4", &cfg, 1);
+	setenv("SENSOR", "imx662", 1);
+	cv610_sns_effective_reset();
+	failures += expect_valid("sns_validate_662_mode4_rejected", &cfg, 0);
+	cfg.sensor.mode = -1;
+	/* An unusable hint must not turn a valid config into an error. */
 	setenv("SENSOR", "imx999", 1);
 	cv610_sns_effective_reset();
 	t = SNS_TYPE_UNKNOWN;
@@ -245,12 +268,12 @@ static int test_sns_types(void)
 		t == SNS_TYPE_IMX662 && src == CV610_SRC_DEFAULT &&
 		strcmp(hint, "imx999") == 0);
 	failures += expect_valid("sns_validate_unusable_hint", &cfg, 1);
-	/* And the mode index really is checked against the running table: 4 is
-	 * past the end of the four IMX662 modes. */
 	cfg.sensor.mode = 4;
 	failures += expect_valid("sns_validate_mode_past_table", &cfg, 0);
 	cfg.sensor.mode = -1;
-	if (orig != NULL)
+	if (env_sensor != NULL)
+		snprintf(orig, sizeof(orig), "%s", env_sensor);
+	if (orig[0] != '\0')
 		setenv("SENSOR", orig, 1);
 	else
 		unsetenv("SENSOR");
