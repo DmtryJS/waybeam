@@ -4,6 +4,7 @@
 #include "venc_config.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int expect_valid(const char *name, VencConfig *cfg, int valid)
@@ -34,11 +35,11 @@ static int test_mode_table(void)
 	size_t i;
 	int failures = 0;
 
-	modes = cv610_mode_table(&count);
+	modes = cv610_mode_table(SNS_TYPE_IMX662, &count);
 	failures += expect("modes_table_non_empty", modes != NULL && count > 0);
 
 	for (i = 0; i < count; i++) {
-		m = cv610_mode_for_fps(modes[i].fps);
+		m = cv610_mode_for_fps(SNS_TYPE_IMX662, modes[i].fps);
 		failures += expect("modes_every_entry_resolves", m == &modes[i]);
 		failures += expect("modes_clock_set", modes[i].sensor_clock_hz != 0);
 		failures += expect("modes_raw_bit_sane",
@@ -46,7 +47,7 @@ static int test_mode_table(void)
 	}
 
 	failures += expect("modes_reject_unknown_fps",
-		cv610_mode_for_fps(45) == NULL);
+		cv610_mode_for_fps(SNS_TYPE_IMX662, 45) == NULL);
 
 	/* Output geometry is checked against the mode, not matched to it: VPSS
 	 * scales the capture down to whatever video0.size asks for. */
@@ -83,8 +84,8 @@ static int test_mode_table(void)
 	/* Control: the 100 fps mode must not share the 30 fps mode's clock.
 	 * If these ever converge the whole table is suspect. */
 	{
-		const Cv610SensorMode *slow = cv610_mode_for_fps(30);
-		const Cv610SensorMode *fast = cv610_mode_for_fps(100);
+		const Cv610SensorMode *slow = cv610_mode_for_fps(SNS_TYPE_IMX662, 30);
+		const Cv610SensorMode *fast = cv610_mode_for_fps(SNS_TYPE_IMX662, 100);
 
 		failures += expect("modes_1080p30_and_1080p100_present",
 			slow != NULL && fast != NULL);
@@ -104,9 +105,10 @@ static int test_mode_table(void)
 static int select_ok(const char *name, int forced, uint32_t fps,
 	uint32_t want_fps)
 {
-	const Cv610SensorMode *table = cv610_mode_table(NULL);
+	const Cv610SensorMode *table = cv610_mode_table(SNS_TYPE_IMX662, NULL);
 	int idx = 999;
-	const Cv610SensorMode *m = cv610_mode_select(forced, fps, &idx);
+	const Cv610SensorMode *m = cv610_mode_select(SNS_TYPE_IMX662, forced, fps,
+		&idx);
 
 	return expect(name, m != NULL && m->fps == want_fps &&
 		idx >= 0 && m == &table[idx]);
@@ -116,12 +118,12 @@ static int select_ok(const char *name, int forced, uint32_t fps,
  * if the table is ever reordered or extended. */
 static int fastest_mode_index(void)
 {
-	const Cv610SensorMode *table = cv610_mode_table(NULL);
+	const Cv610SensorMode *table = cv610_mode_table(SNS_TYPE_IMX662, NULL);
 	size_t count = 0;
 	size_t i;
 	int best = 0;
 
-	cv610_mode_table(&count);
+	cv610_mode_table(SNS_TYPE_IMX662, &count);
 	for (i = 1; i < count; i++)
 		if (table[i].fps > table[best].fps)
 			best = (int)i;
@@ -131,7 +133,8 @@ static int fastest_mode_index(void)
 static int select_rejects(const char *name, int forced, uint32_t fps)
 {
 	int idx = 999;
-	const Cv610SensorMode *m = cv610_mode_select(forced, fps, &idx);
+	const Cv610SensorMode *m = cv610_mode_select(SNS_TYPE_IMX662, forced, fps,
+		&idx);
 
 	return expect(name, m == NULL && idx == -1);
 }
@@ -142,11 +145,11 @@ static int select_rejects(const char *name, int forced, uint32_t fps)
  * see cv610_mode_select(). */
 static int test_mode_select(void)
 {
-	const Cv610SensorMode *table = cv610_mode_table(NULL);
+	const Cv610SensorMode *table = cv610_mode_table(SNS_TYPE_IMX662, NULL);
 	size_t count = 0;
 	int failures = 0;
 
-	cv610_mode_table(&count);
+	cv610_mode_table(SNS_TYPE_IMX662, &count);
 
 	/* A forced index beats the requested rate outright. */
 	failures += select_ok("select_forced_beats_fps", 1, 100, table[1].fps);
@@ -173,6 +176,85 @@ static int test_mode_select(void)
 	/* No target at all: reject rather than invent a rate. */
 	failures += select_rejects("select_auto_zero_fps", -1, 0);
 
+	return failures;
+}
+
+/* The CV610 backend takes its sensor from the system, not from a config field.
+ * Pin the table shape, the name resolution and the hint chain: a craft whose
+ * u-boot env names a part this binary cannot serve must still come up on the
+ * historical default, and one whose hint names a part that is in the table
+ * must come up as that part. */
+static int test_sns_types(void)
+{
+	const char *orig = getenv("SENSOR");
+	const Cv610SensorMode *m662;
+	Cv610SnsType t = SNS_TYPE_UNKNOWN;
+	Cv610SnsSource src = CV610_SRC_DEFAULT;
+	char hint[32] = "";
+	size_t c662 = 0;
+	VencConfig cfg;
+	int failures = 0;
+
+	m662 = cv610_mode_table(SNS_TYPE_IMX662, &c662);
+	failures += expect("sns_662_table", m662 != NULL && c662 == 4);
+	failures += expect("sns_name_case_insensitive",
+		cv610_sns_from_name("IMX662") == SNS_TYPE_IMX662);
+	failures += expect("sns_name_empty_unknown",
+		cv610_sns_from_name("") == SNS_TYPE_UNKNOWN &&
+		cv610_sns_from_name(NULL) == SNS_TYPE_UNKNOWN);
+	failures += expect("sns_name_bogus",
+		cv610_sns_from_name("imx999") == SNS_TYPE_UNKNOWN);
+	/* Pure resolver: a usable hint wins, an absent or unusable one lands on
+	 * the default with a status the caller warns on instead of refusing. */
+	failures += expect("sns_hint_used",
+		cv610_sns_resolve_hint("imx662", CV610_SRC_UBOOT, &t, &src) == 0 &&
+		t == SNS_TYPE_IMX662 && src == CV610_SRC_UBOOT);
+	failures += expect("sns_hint_empty_default",
+		cv610_sns_resolve_hint("", CV610_SRC_DEFAULT, &t, &src) == 1 &&
+		t == SNS_TYPE_IMX662 && src == CV610_SRC_DEFAULT);
+	failures += expect("sns_hint_null_default",
+		cv610_sns_resolve_hint(NULL, CV610_SRC_DEFAULT, &t, &src) == 1 &&
+		t == SNS_TYPE_IMX662 && src == CV610_SRC_DEFAULT);
+	failures += expect("sns_hint_unknown_default",
+		cv610_sns_resolve_hint("sc4336p", CV610_SRC_UBOOT, &t, &src) == 2 &&
+		t == SNS_TYPE_IMX662 && src == CV610_SRC_DEFAULT);
+	failures += expect("sns_source_names",
+		strcmp(cv610_sns_source_name(CV610_SRC_ENV), "from SENSOR env") == 0 &&
+		strcmp(cv610_sns_source_name(CV610_SRC_UBOOT), "from u-boot env") == 0 &&
+		strcmp(cv610_sns_source_name(CV610_SRC_IPCINFO), "from ipcinfo") == 0 &&
+		strcmp(cv610_sns_source_name(CV610_SRC_DEFAULT), "default") == 0);
+	/* Only the getenv branch of the hint chain can run here without forking;
+	 * fw_printenv and ipcinfo are exercised on a craft.  The trailing newline
+	 * is what an env value or a command substitution typically carries. */
+	setenv("SENSOR", "imx662\n", 1);
+	cv610_sns_effective_reset();
+	failures += expect("sns_effective_from_env",
+		cv610_sns_effective(&t, &src, hint, sizeof(hint)) == 0 &&
+		t == SNS_TYPE_IMX662 && src == CV610_SRC_ENV &&
+		strcmp(hint, "imx662") == 0);
+	/* The cached answer is what validation reads, so pin the two of them
+	 * together: the config still has no sensor field at all. */
+	venc_config_defaults(&cfg);
+	failures += expect_valid("sns_validate_with_hint", &cfg, 1);
+	setenv("SENSOR", "imx999", 1);
+	cv610_sns_effective_reset();
+	t = SNS_TYPE_UNKNOWN;
+	src = CV610_SRC_ENV;
+	failures += expect("sns_effective_unusable_hint_default",
+		cv610_sns_effective(&t, &src, hint, sizeof(hint)) == 2 &&
+		t == SNS_TYPE_IMX662 && src == CV610_SRC_DEFAULT &&
+		strcmp(hint, "imx999") == 0);
+	failures += expect_valid("sns_validate_unusable_hint", &cfg, 1);
+	/* And the mode index really is checked against the running table: 4 is
+	 * past the end of the four IMX662 modes. */
+	cfg.sensor.mode = 4;
+	failures += expect_valid("sns_validate_mode_past_table", &cfg, 0);
+	cfg.sensor.mode = -1;
+	if (orig != NULL)
+		setenv("SENSOR", orig, 1);
+	else
+		unsetenv("SENSOR");
+	cv610_sns_effective_reset();
 	return failures;
 }
 
@@ -288,8 +370,9 @@ int main(void)
 
 	failures += test_mode_table();
 	failures += test_mode_select();
+	failures += test_sns_types();
 	failures += test_encoder_config();
-	cv610_mode_table(&mode_count);
+	cv610_mode_table(SNS_TYPE_IMX662, &mode_count);
 
 	venc_config_defaults(&cfg);
 	failures += expect_valid("cv610_defaults", &cfg, 1);
@@ -316,7 +399,7 @@ int main(void)
 	/* And that it names a real sensor mode rather than only passing the
 	 * generic range checks. */
 	failures += expect("cv610_default_names_a_mode",
-		cv610_mode_for_fps(cfg.video0.fps) != NULL);
+		cv610_mode_for_fps(SNS_TYPE_IMX662, cfg.video0.fps) != NULL);
 	/* A rate above every mode is no longer a config error — it selects the
 	 * fastest mode.  (This asserted rejection until the selector landed; the
 	 * substitution is what replaced it, not the removal of a check.) */

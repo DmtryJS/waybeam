@@ -3,7 +3,12 @@
 
 #include <stdint.h>
 
+#include "cv610_sns.h"
+
 typedef struct {
+	/* Which sensor plugin to dlopen and which ISP sns_id to bind.  Set from
+	 * the system hint by cv610_prepare(). */
+	Cv610SnsType sns_type;
 	/* Sensor capture geometry (what VI and the ISP see). */
 	uint32_t width;
 	uint32_t height;

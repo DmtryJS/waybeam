@@ -1,5 +1,33 @@
 # History
 
+## [0.85.0] - 2026-10-25
+
+**The CV610 backend now takes its sensor from the system instead of the
+build.**  Which Sony part is fitted is something the firmware already knows:
+it is the name the loader uses to insmod the sensor modules and to pick the
+input clock, rcS exports it as `$SENSOR`, and `ipcinfo` echoes it.  The
+backend asks the system rather than carrying a config field that could
+disagree with the modules actually loaded, and one binary serves either part
+because the sensor plugin is `dlopen`'d at bring-up.
+
+- **`src/cv610_sns.c` resolves the part** from `$SENSOR`, then
+  `fw_printenv -n sensor`, then `ipcinfo --short-sensor`, and falls back to
+  the historical IMX662 default when none of them answers — with a WARN that
+  quotes the hint it could not use, because refusing to start would leave a
+  craft the kernel loader is happily running dark.  The answer is cached, so
+  validation can consult it on every staged write without forking.
+- **No new config field, no contract change.**  `contract_version` stays
+  **0.31.0** and `/api/v1/modes` keeps the shape it had; only the table
+  behind it is now the running sensor's.
+- **CV610's mode table became per-sensor.**  `cv610_mode_table()`,
+  `cv610_mode_for_fps()` and `cv610_mode_select()` take the sensor type, and
+  the resolver returns the selected table index to its caller, so the table is
+  the single source of truth for capture geometry, rate, RAW bit depth and the
+  sensor clock a mode's line timing assumes.
+- **No sensor is added here.**  IMX662 remains the only table this release
+  registers and its behaviour is unchanged; the part is now named by the
+  system rather than hardcoded in `sensor_setup()`.
+
 ## [0.84.0] - 2026-09-06
 
 `record.format="hevc"` now rotates, and **neither recorder forces a keyframe

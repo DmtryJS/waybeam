@@ -1,6 +1,22 @@
 #include "cv610_modes.h"
 
-/* All four entries are hardware-verified on the IMX662 bring-up board.
+/* The mode tables are the single source of truth for capture geometry, frame
+ * rate, MIPI RAW bit depth and the sensor clock a mode's line timing assumes.
+ * Everything derives from them: cv610_validate_config() rejects anything that
+ * does not resolve, cv610_prepare() takes the bit depth and clock from the
+ * resolved mode, and /api/v1/modes is generated from them.
+ *
+ * The table INDEX is load-bearing: it is written to the sensor's
+ * sns_mode hint (via pub.sns_mode) and the plugin's cmos_isp_set_image_mode()
+ * uses it to pick its own img_mode.  So each row must keep the same index as
+ * the matching IMX662_*_MODE enum in the plugin.  Only fixed modes are
+ * listed; the flexible window crop (plugin img_mode 5) is deliberately absent
+ * until its arbitrary-geometry bring-up is wired through.
+ */
+
+/* ---- IMX662: 1920x1080, four rates --------------------------------------
+ *
+ * All four entries are hardware-verified on the IMX662 bring-up board.
  *
  * The clock column is the one that bites.  The sensor keeps whatever line
  * timing it was programmed with regardless of the MCLK it is actually fed,
@@ -9,21 +25,30 @@
  * Measured 43.6 fps for the 60 fps mode when it ran on the 100 fps mode's
  * 27 MHz clock.  Only 100 fps takes the sensor's 24 MHz INCK profile
  * overclocked to 27 MHz (INCK_SEL 0x04); the rest run 37.125 MHz. */
-static const Cv610SensorMode g_cv610_modes[] = {
+static const Cv610SensorMode g_imx662_modes[] = {
 	{ 1920, 1080,  30, 12, 37125000u, "1080p30 RAW12" },
 	{ 1920, 1080,  60, 12, 37125000u, "1080p60 RAW12" },
 	{ 1920, 1080,  90, 10, 37125000u, "1080p90 RAW10" },
 	{ 1920, 1080, 100, 10, 27000000u, "1080p100 RAW10" },
 };
 
-#define CV610_MODE_COUNT \
-	(sizeof(g_cv610_modes) / sizeof(g_cv610_modes[0]))
-
-const Cv610SensorMode *cv610_mode_table(size_t *count)
+static const Cv610SensorMode *table_for(Cv610SnsType type, size_t *count)
 {
-	if (count)
-		*count = CV610_MODE_COUNT;
-	return g_cv610_modes;
+	switch (type) {
+	case SNS_TYPE_IMX662:
+	default:
+		/* Unknown falls back to IMX662: a caller that resolved its config
+		 * has already rejected an unknown name, and returning NULL here
+		 * would turn a handled error into a crash. */
+		if (count)
+			*count = sizeof(g_imx662_modes) / sizeof(g_imx662_modes[0]);
+		return g_imx662_modes;
+	}
+}
+
+const Cv610SensorMode *cv610_mode_table(Cv610SnsType type, size_t *count)
+{
+	return table_for(type, count);
 }
 
 /* VPSS scales, it does not invent detail: upscaling past the captured size
@@ -32,36 +57,43 @@ const Cv610SensorMode *cv610_mode_table(size_t *count)
 #define CV610_OUT_ALIGN 8u
 #define CV610_OUT_MIN   128u
 
-const Cv610SensorMode *cv610_mode_for_fps(uint32_t fps)
+const Cv610SensorMode *cv610_mode_for_fps(Cv610SnsType type, uint32_t fps)
 {
+	const Cv610SensorMode *table;
+	size_t count = 0;
 	size_t i;
 
-	for (i = 0; i < CV610_MODE_COUNT; ++i) {
-		if (g_cv610_modes[i].fps == fps)
-			return &g_cv610_modes[i];
+	table = table_for(type, &count);
+	for (i = 0; i < count; ++i) {
+		if (table[i].fps == fps)
+			return &table[i];
 	}
 	return NULL;
 }
 
-const Cv610SensorMode *cv610_mode_select(int forced_mode, uint32_t target_fps,
-	int *out_index)
+const Cv610SensorMode *cv610_mode_select(Cv610SnsType type, int forced_mode,
+	uint32_t target_fps, int *out_index)
 {
+	const Cv610SensorMode *table;
 	const Cv610SensorMode *pick;
+	size_t count = 0;
 	size_t pick_i = 0;
 	size_t i;
 
 	if (out_index)
 		*out_index = -1;
 
+	table = table_for(type, &count);
+
 	/* A forced index is the whole answer: it exists or the config is wrong.
 	 * Parity with find_best_mode(), which fails bring-up rather than
 	 * quietly running a mode the operator did not ask for. */
 	if (forced_mode >= 0) {
-		if ((size_t)forced_mode >= CV610_MODE_COUNT)
+		if ((size_t)forced_mode >= count)
 			return NULL;
 		if (out_index)
 			*out_index = forced_mode;
-		return &g_cv610_modes[forced_mode];
+		return &table[forced_mode];
 	}
 	/* Nothing to select against.  Rejecting keeps the behaviour this
 	 * function replaced — a bare cv610_mode_for_fps(0) returned NULL too —
@@ -69,17 +101,17 @@ const Cv610SensorMode *cv610_mode_select(int forced_mode, uint32_t target_fps,
 	if (target_fps == 0)
 		return NULL;
 
-	pick = cv610_mode_for_fps(target_fps);
+	pick = cv610_mode_for_fps(type, target_fps);
 	if (pick != NULL) {
 		if (out_index)
-			*out_index = (int)(pick - g_cv610_modes);
+			*out_index = (int)(pick - table);
 		return pick;
 	}
 
 	/* Slowest mode still faster than the target: never deliver fewer frames
 	 * than asked for while a mode that can keep up exists. */
-	for (i = 0; i < CV610_MODE_COUNT; ++i) {
-		const Cv610SensorMode *m = &g_cv610_modes[i];
+	for (i = 0; i < count; ++i) {
+		const Cv610SensorMode *m = &table[i];
 
 		if (m->fps > target_fps && (pick == NULL || m->fps < pick->fps)) {
 			pick = m;
@@ -88,9 +120,9 @@ const Cv610SensorMode *cv610_mode_select(int forced_mode, uint32_t target_fps,
 	}
 	/* Target above every mode: clamp to the fastest. */
 	if (pick == NULL) {
-		for (i = 0; i < CV610_MODE_COUNT; ++i) {
-			if (pick == NULL || g_cv610_modes[i].fps > pick->fps) {
-				pick = &g_cv610_modes[i];
+		for (i = 0; i < count; ++i) {
+			if (pick == NULL || table[i].fps > pick->fps) {
+				pick = &table[i];
 				pick_i = i;
 			}
 		}

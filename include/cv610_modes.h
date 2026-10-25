@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "cv610_sns.h"
+
 /* One sensor mode of the CV610 graph.
  *
  * Mirrors g_imx662_mode_tbl in sensors/cv610/imx662/imx662_cmos.c, which the
@@ -24,14 +26,16 @@ typedef struct {
 	const char *desc;          /* /api/v1/modes label */
 } Cv610SensorMode;
 
-/* The mode table, in advertised (index) order.  Never NULL. */
-const Cv610SensorMode *cv610_mode_table(size_t *count);
+/* The mode table for one sensor, in advertised (index) order.  Never NULL;
+ * an unknown type falls back to IMX662 so a caller that has already been
+ * validated cannot dereference NULL. */
+const Cv610SensorMode *cv610_mode_table(Cv610SnsType type, size_t *count);
 
 /* The sensor mode for a requested frame rate, or NULL if there is none.
  * Frame rate alone selects the mode: every entry captures the same geometry,
  * and any smaller encoded size is produced by scaling rather than by a
  * different capture. */
-const Cv610SensorMode *cv610_mode_for_fps(uint32_t fps);
+const Cv610SensorMode *cv610_mode_for_fps(Cv610SnsType type, uint32_t fps);
 
 /* Resolve sensor.mode + video0.fps to one mode, the way SigmaStar's
  * sensor_select() resolves sensor.mode + video0.fps against MI_SNR_GetRes():
@@ -53,8 +57,8 @@ const Cv610SensorMode *cv610_mode_for_fps(uint32_t fps);
  * *out_index (optional) receives the table index, or -1 when NULL is returned.
  * A caller that acts on the result must report a substituted rate: the sensor
  * runs at the MODE's rate, not the requested one. */
-const Cv610SensorMode *cv610_mode_select(int forced_mode, uint32_t target_fps,
-	int *out_index);
+const Cv610SensorMode *cv610_mode_select(Cv610SnsType type, int forced_mode,
+	uint32_t target_fps, int *out_index);
 
 /* Whether an encoded geometry can be produced from this mode.  Returns NULL
  * when it can, or a static reason string.  A zero width AND height mean

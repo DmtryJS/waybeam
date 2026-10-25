@@ -10,21 +10,31 @@ const char *cv610_validate_config(const VencConfig *cfg)
 {
 	const Cv610SensorMode *mode;
 	VencOutputUri uri;
+	Cv610SnsType sns_type;
 	size_t mode_count = 0;
 	const char *err;
 
 	if (!cfg)
 		return "missing config";
+	/* Which sensor this process runs is a system fact, resolved and cached in
+	 * cv610_sns.c: this function runs on every staged write, and the command
+	 * fallbacks behind that resolution fork.  The mode table below is
+	 * therefore the running part's table, so an index that only exists on the
+	 * other part stays a config error. */
+	/* Only the type is wanted here; the status (hint used / no hint /
+	 * unusable hint) is bring-up's to report. */
+	(void)cv610_sns_effective(&sns_type, NULL, NULL, 0);
 	/* sensor.mode and video0.fps select the sensor mode together, the way
 	 * they do on SigmaStar: an explicit sensor.mode wins, otherwise the rate
 	 * is a target.  video0.size is the encoded size VPSS scales that capture
 	 * down to.  /api/v1/modes lists the modes. */
-	cv610_mode_table(&mode_count);
+	cv610_mode_table(sns_type, &mode_count);
 	if (cfg->sensor.index > 0)
 		return "CV610 has a single sensor pad: sensor.index must be -1 or 0";
 	if (cfg->sensor.mode >= 0 && (size_t)cfg->sensor.mode >= mode_count)
 		return "CV610 sensor.mode is not an index listed by /api/v1/modes";
-	mode = cv610_mode_select(cfg->sensor.mode, cfg->video0.fps, NULL);
+	mode = cv610_mode_select(sns_type, cfg->sensor.mode, cfg->video0.fps,
+		NULL);
 	if (mode == NULL)
 		return "CV610 video0.fps must name a mode listed by /api/v1/modes";
 	err = cv610_mode_check_output(mode, cfg->video0.width,

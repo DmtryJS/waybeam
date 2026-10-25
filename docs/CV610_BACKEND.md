@@ -160,10 +160,55 @@ Audio remains a separate RTP/UDP side channel: UDP video uses the configured
 remote host, while local `unix://` or `frame-shm://` video sends audio to the
 co-located Waybeam Link listener on `127.0.0.1:<audioPort>`.
 
+## Sensor selection
+
+The backend resolves its sensor from the system rather than from the build:
+the plugin is `dlopen`'d at bring-up, so one binary serves any part in the
+table `src/cv610_sns.c` carries — a name mapped onto the plugin's base name
+(`libsns_<type>.so`), the `ot_isp_sns_obj` symbol it exports, and the
+`ot_sensor_id` the ISP is bound to.
+
+Which part is fitted is asked for at the source of truth the rest of the
+bring-up already uses, in order:
+
+1. `$SENSOR` — rcS exports it from the u-boot env before the daemon starts;
+2. `fw_printenv -n sensor` — the u-boot env, which is also what the loader
+   reads to pick the sensor modules and the input clock;
+3. `ipcinfo --short-sensor`.
+
+There is deliberately no `sensor.sensorType` config field.  The kernel side of
+the bring-up (modules, `sys_config` clock) follows the same env, so a field
+could only disagree with it; changing the part is changing what the system
+reports (`fw_setenv sensor <name>`), which is the same switch the loader
+follows.  A manual restart from an ssh session inherits no `$SENSOR`, which is
+what the two command fallbacks are for.
+
+If nothing answers, or answers with a name this binary has no plugin for, the
+daemon comes up on the historical default (IMX662) and says so on stderr —
+`WARN: no sensor hint (SENSOR, u-boot env, ipcinfo), assuming imx662` or
+`WARN: system sensor "sc4336p" is not a waybeam plugin, assuming imx662`.
+Refusing to start would leave a craft that the kernel loader is happily
+running dark.  The resolution happens once and is cached, so validation can
+consult it on every staged write without forking `fw_printenv` per request;
+the choice is logged once at bring-up:
+
+```
+> CV610 sensor: imx335 (from SENSOR env)
+```
+
+The default is only usable where the IMX662 plugin is installed: a stock CV610
+rootfs carries `libsns_gc4023.so`, `libsns_imx307.so`, `libsns_imx335.so`,
+`libsns_os04d10.so`, `libsns_sc431hai.so`, `libsns_sc4336p.so`,
+`libsns_sc450ai.so`, `libsns_sc500ai.so` and `libsns_sp2308.so` — and no
+`libsns_imx662.so`, so such a craft loses the bring-up at `dlopen`.  Its
+u-boot env names the fitted part, so in practice the hint answers.
+
+`GET /api/v1/modes` reports the modes of the sensor actually brought up.
+
 ## Sensor modes
 
 `video0.fps` selects a sensor mode; `video0.size` is the encoded size. They
-are independent because VPSS sits between VI and VENC and scales: the sensor
+are independent because VPSS sits between VI and VENC and scales: the IMX662
 always captures 1920x1080, and any smaller encoded geometry is produced by
 the scaler. This is the same split SigmaStar gets from its VPE SCL ports.
 

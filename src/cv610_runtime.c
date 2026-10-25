@@ -2175,13 +2175,33 @@ static int cv610_prepare(void *opaque)
 	Cv610RunnerContext *ctx = opaque;
 	VencConfig *cfg = &ctx->config;
 	const Cv610SensorMode *mode;
+	Cv610SnsType sns_type;
+	Cv610SnsSource sns_src = CV610_SRC_DEFAULT;
+	char sns_hint[32] = "";
+	int sns_status;
 	int mode_index = -1;
 
 	setvbuf(stdout, NULL, _IONBF, 0);
-	/* Config loading and every staged HTTP mutation run the same lookup
-	 * through cv610_validate_config(), so reaching this is a config file
-	 * edited behind the daemon's back. */
-	mode = cv610_mode_select(cfg->sensor.mode, cfg->video0.fps, &mode_index);
+	/* The sensor is the system's own idea of what is fitted ($SENSOR, then the
+	 * u-boot env, then ipcinfo) -- the same name the loader uses to pick the
+	 * sensor modules and the input clock.  Resolved and cached in cv610_sns.c,
+	 * so the forks happen here at bring-up and never inside an HTTP request.
+	 * There is no config field left to name it, so this line is the only
+	 * record of the choice. */
+	sns_status = cv610_sns_effective(&sns_type, &sns_src, sns_hint,
+		sizeof(sns_hint));
+	if (sns_status == 2)
+		fprintf(stderr, "WARN: system sensor \"%s\" is not a waybeam "
+			"plugin, assuming %s\n", sns_hint,
+			cv610_sns_get_name(sns_type));
+	else if (sns_status == 1)
+		fprintf(stderr, "WARN: no sensor hint (SENSOR, u-boot env, "
+			"ipcinfo), assuming %s\n",
+			cv610_sns_get_name(sns_type));
+	printf("> CV610 sensor: %s (%s)\n", cv610_sns_get_name(sns_type),
+		cv610_sns_source_name(sns_src));
+	mode = cv610_mode_select(sns_type, cfg->sensor.mode, cfg->video0.fps,
+		&mode_index);
 	if (mode == NULL || cv610_mode_check_output(mode, cfg->video0.width,
 			cfg->video0.height) != NULL) {
 		fprintf(stderr, "ERROR: CV610 cannot encode %ux%u @ %u fps\n",
@@ -2199,6 +2219,7 @@ static int cv610_prepare(void *opaque)
 	 * achieved mode rather than recomputing the configured one — the same
 	 * contract star6e_pipeline.c fulfils after sensor_select(). */
 	venc_api_set_sensor_info(0, mode_index, cfg->sensor.index);
+	ctx->pipeline.sns_type = sns_type;
 	ctx->pipeline.width = mode->width;
 	ctx->pipeline.height = mode->height;
 	cv610_mode_resolve_output(mode, cfg->video0.width, cfg->video0.height,

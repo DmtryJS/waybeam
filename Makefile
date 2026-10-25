@@ -87,6 +87,7 @@ CV610_SRC := src/main.c src/backend_cv610.c src/cv610_runtime.c \
 	src/cv610_encoder_config.c \
 	src/cv610_iq.c \
 	src/cv610_modes.c \
+	src/cv610_sns.c \
 	src/cv610_pq_bin.c \
 	src/cv610_jpeg.c \
 	src/cv610_pipeline.c src/cv610_validation.c src/backend.c \
@@ -473,10 +474,10 @@ $(TEST_RUNNER): $(TEST_SRCS) $(TEST_LIB_SRCS) tests/test_helpers.h include/backe
 	$(HOST_CC) $(HOST_CFLAGS) $(TEST_SRCS) $(TEST_LIB_SRCS) -lpthread -ldl -lm -o $@
 
 $(CV610_VALIDATION_TEST): tests/test_cv610_validation.c src/cv610_validation.c \
-		src/cv610_modes.c \
+		src/cv610_modes.c src/cv610_sns.c \
 		src/cv610_encoder_config.c src/intra_refresh.c \
 		src/venc_config.c src/codec_config.c lib/cJSON.c
-	$(HOST_CC) $(HOST_CFLAGS) -Werror $^ -lm -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -Werror $^ -lpthread -lm -o $@
 
 test: $(TEST_RUNNER) $(CV610_VALIDATION_TEST)
 	./$(TEST_RUNNER)

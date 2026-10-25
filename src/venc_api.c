@@ -4321,9 +4321,10 @@ static int handle_modes(int fd, const HttpRequest *req, void *ctx)
 #if HAVE_BACKEND_CV610
 	/* Generated from the same table cv610_validate_config() rejects
 	 * against, so what this lists is exactly what /set accepts. */
+	Cv610SnsType sns_type;
 	size_t count = 0;
 	size_t i;
-	const Cv610SensorMode *modes = cv610_mode_table(&count);
+	const Cv610SensorMode *modes;
 	int selected, selected_pad;
 	cJSON *root, *data, *pads, *pad, *arr;
 	char *str;
@@ -4338,6 +4339,11 @@ static int handle_modes(int fd, const HttpRequest *req, void *ctx)
 	selected = g_sensor_mode;
 	selected_pad = g_sensor_pad;
 	pthread_mutex_unlock(&g_cfg_mutex);
+
+	/* The table of the sensor this process runs.  Cached in cv610_sns.c, so
+	 * this cannot fork an HTTP thread to read the system hint. */
+	(void)cv610_sns_effective(&sns_type, NULL, NULL, 0);
+	modes = cv610_mode_table(sns_type, &count);
 
 	root = cJSON_CreateObject();
 	if (!root)
