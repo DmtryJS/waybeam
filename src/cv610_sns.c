@@ -142,30 +142,50 @@ int cv610_sns_resolve_hint(const char *hint, Cv610SnsSource hint_src,
 	return (hint != NULL && *hint != '\0') ? 2 : 1;
 }
 
-/* ---- the cached answer -------------------------------------------------
+/* ---- the resolved answer -----------------------------------------------
  *
- * Validation consults the effective type on every staged write, and the
- * command fallbacks fork, so the answer is resolved once and kept.  The mutex
- * is what makes the cache safe for the HTTP threads that read it; resetting it
- * is for the host tests only. */
-static pthread_mutex_t g_eff_lock = PTHREAD_MUTEX_INITIALIZER;
-static int g_eff_ready;                      /* guarded by g_eff_lock */
-static int g_eff_status;                     /* guarded by g_eff_lock */
-static Cv610SnsType g_eff_type = CV610_SNS_FALLBACK;
-static Cv610SnsSource g_eff_src = CV610_SRC_DEFAULT;
-static char g_eff_hint[32];
+ * Validation consults the effective type on every staged write, and it does so
+ * from the very start of the process: main() validates the file on disk inside
+ * venc_config_load() (src/venc_config.c:1029), which runs BEFORE
+ * backend_execute() reaches cv610_prepare() -- so the runner context that owns
+ * everything else about this run does not exist yet and cannot own this.  The
+ * command fallbacks behind the resolution fork, so the answer is resolved once
+ * and kept.
+ *
+ * The cache is therefore one struct holding the answer, written once by
+ * effective_resolve_locked() and only read afterwards; the mutex is there for
+ * the case where the first reader is the HTTP dispatch thread (handle_modes())
+ * rather than config loading.  Keeping the answer in one object also keeps the
+ * module's other entry points pure: cv610_sns_resolve_hint() stays a function
+ * of its arguments, and nothing outside this file can write the answer except
+ * cv610_sns_effective_reset(), which exists for the host tests that flip
+ * $SENSOR -- the daemon resolves once per process. */
+struct Cv610SnsAnswer {
+	pthread_mutex_t lock;
+	int             ready;   /* guarded by lock */
+	int             status;  /* guarded by lock */
+	Cv610SnsType    type;
+	Cv610SnsSource  src;
+	char            hint[32];
+};
+
+static struct Cv610SnsAnswer g_eff = {
+	.lock = PTHREAD_MUTEX_INITIALIZER,
+	.type = CV610_SNS_FALLBACK,
+	.src  = CV610_SRC_DEFAULT,
+};
 
 static void effective_resolve_locked(void)
 {
 	Cv610SnsSource hint_src = CV610_SRC_DEFAULT;
-	char hint[sizeof(g_eff_hint)] = "";
+	char hint[sizeof(g_eff.hint)] = "";
 
 	(void)cv610_sns_read_system_hint(hint, sizeof(hint), &hint_src);
-	g_eff_status = cv610_sns_resolve_hint(hint, hint_src, &g_eff_type,
-		&g_eff_src);
+	g_eff.status = cv610_sns_resolve_hint(hint, hint_src, &g_eff.type,
+		&g_eff.src);
 	/* Keep the raw hint even when it was unusable: it is what the warning
 	 * has to quote. */
-	snprintf(g_eff_hint, sizeof(g_eff_hint), "%s", hint);
+	snprintf(g_eff.hint, sizeof(g_eff.hint), "%s", hint);
 }
 
 int cv610_sns_effective(Cv610SnsType *out, Cv610SnsSource *src,
@@ -173,27 +193,27 @@ int cv610_sns_effective(Cv610SnsType *out, Cv610SnsSource *src,
 {
 	int status;
 
-	pthread_mutex_lock(&g_eff_lock);
-	if (!g_eff_ready) {
+	pthread_mutex_lock(&g_eff.lock);
+	if (!g_eff.ready) {
 		effective_resolve_locked();
-		g_eff_ready = 1;
+		g_eff.ready = 1;
 	}
-	status = g_eff_status;
+	status = g_eff.status;
 	if (out != NULL)
-		*out = g_eff_type;
+		*out = g_eff.type;
 	if (src != NULL)
-		*src = g_eff_src;
+		*src = g_eff.src;
 	if (hint != NULL && hint_n > 0)
-		snprintf(hint, hint_n, "%s", g_eff_hint);
-	pthread_mutex_unlock(&g_eff_lock);
+		snprintf(hint, hint_n, "%s", g_eff.hint);
+	pthread_mutex_unlock(&g_eff.lock);
 	return status;
 }
 
 void cv610_sns_effective_reset(void)
 {
-	pthread_mutex_lock(&g_eff_lock);
-	g_eff_ready = 0;
-	pthread_mutex_unlock(&g_eff_lock);
+	pthread_mutex_lock(&g_eff.lock);
+	g_eff.ready = 0;
+	pthread_mutex_unlock(&g_eff.lock);
 }
 
 const char *cv610_sns_source_name(Cv610SnsSource src)

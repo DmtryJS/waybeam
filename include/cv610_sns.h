@@ -62,7 +62,13 @@ int cv610_sns_resolve_hint(const char *hint, Cv610SnsSource hint_src,
  * cached: validation consults it on every staged write, and the command
  * fallbacks fork.  *out (type), *src (source) and hint (raw hint text, may be
  * NULL) are all optional; the return value is cv610_sns_resolve_hint()'s
- * status.  Never returns SNS_TYPE_UNKNOWN. */
+ * status.  Never returns SNS_TYPE_UNKNOWN.
+ *
+ * The answer cannot live with the rest of the run's state in the backend
+ * context: main() validates the config file before backend_execute() reaches
+ * the CV610 prepare() step, so the context does not exist when the first
+ * question is asked (§cv610_sns.c for the details).  It is resolved once and
+ * is read-only afterwards. */
 int cv610_sns_effective(Cv610SnsType *out, Cv610SnsSource *src,
 	char *hint, size_t hint_n);
 

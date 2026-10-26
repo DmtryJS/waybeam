@@ -6,12 +6,21 @@
  * does not resolve, cv610_prepare() takes the bit depth and clock from the
  * resolved mode, and /api/v1/modes is generated from them.
  *
- * The table INDEX is load-bearing: it is written to the sensor's
- * sns_mode hint (via pub.sns_mode) and the plugin's cmos_isp_set_image_mode()
- * uses it to pick its own img_mode.  So each row must keep the same index as
- * the matching IMX662_*_MODE enum in the plugin.  Only fixed modes are
- * listed; the flexible window crop (plugin img_mode 5) is deliberately absent
- * until its arbitrary-geometry bring-up is wired through.
+ * The table index is what a config's sensor.mode names, and what
+ * /api/v1/modes lists; the sensor plugin never sees it.  isp_setup() publishes
+ * pub.sns_mode = 0 ("auto") and the plugin's cmos_isp_set_image_mode() picks
+ * its own img_mode from the geometry and rate the ISP hands it: IMX662 keys on
+ * the rate alone (all of its modes are 1080p), IMX335 on an exact width/height
+ * match plus a rate inside that mode's min..max, with a non-zero sns_mode
+ * accepted as an explicit hint that nothing publishes today.  So a table row
+ * is load-bearing only through what it publishes as geometry and rate: two
+ * rows of one part must not be confusable by the plugin (same geometry is fine
+ * only when the rates separate them), and the row order is kept aligned with
+ * the plugin's *_MODE enum so that plumbing the index into pub.sns_mode stays
+ * a one-line change -- a flexible window crop, which has no fixed geometry to
+ * match on, would need exactly that.  Only fixed modes are listed; the
+ * plugin's img_mode 5 is deliberately absent until that bring-up is wired
+ * through.
  */
 
 /* ---- IMX662: 1920x1080, four rates --------------------------------------
