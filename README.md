@@ -129,8 +129,10 @@ so a hint that names a part is what makes the bring-up succeed. A hint this
 binary has no plugin for falls back to the default with a WARN rather than
 refusing to start. `GET /api/v1/modes` reports the modes of the sensor
 actually brought up. Per-sensor modes and the IMX335 profile live in
-`docs/CV610_BACKEND.md`; plugin internals and IQ caveats are in
-`sensors/cv610/imx335/README.md`.
+`docs/CV610_BACKEND.md`; the IMX335 plugin itself is the OpenHisilicon driver
+(`OpenIPC/openhisilicon`, `sony_imx335`), which the firmware's
+`hisilicon-opensdk` package ships, so this repository carries no IMX335
+source.
 
 ## Deployment
 

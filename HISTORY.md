@@ -3,27 +3,39 @@
 ## [0.86.0] - 2026-10-25
 
 **Sony IMX335 joins IMX662 on the CV610 backend.** A craft whose system hint
-names `imx335` brings up the T6 sensor plugin and its five-mode table; the
-plumbing that lets one binary serve either part landed in 0.85.0.  No
-contract change: `/api/v1/modes` keeps its shape and now reports five IMX335
-modes on such a craft.
+names `imx335` brings up that part and its five-mode table; the plumbing that
+lets one binary serve either part landed in 0.85.0.  No contract change:
+`/api/v1/modes` keeps its shape and now reports five IMX335 modes on such a
+craft.
 
-- **Five fixed modes**, indices 0..4, matching the plugin's `img_mode`:
+The plugin itself is not part of this repository: IMX335 is the T6 driver
+upstreamed to `OpenIPC/openhisilicon` (#270), which the firmware's
+`hisilicon-opensdk` package builds into `/usr/lib/sensors/libsns_imx335.so`.
+What lands here is the daemon's half of the pair -- the sensor registry row
+and the mode table -- which is all the backend needs to `dlopen` and drive
+it, exactly as it does for IMX662.
+
+- **Five fixed modes**, indices 0..4, matching the driver's `img_mode`:
   2592x1944@30 RAW12, 1296x972 2x2 binning@60, 1920x1080 crop@90,
   2592x1944@40 RAW10 and 2592x1520 crop@30 RAW10.
 - **`pub.sns_mode` now carries the selected table index** instead of a
   hardcoded 0. IMX662's driver derives its `img_mode` from fps and ignores
-  it; IMX335's uses it as a hint, which is what keeps its two 30 fps modes
-  (2592x1944 and 2592x1520) apart. This is the one behaviour change the
-  IMX662 path sees.
+  it; IMX335's takes it as a hint, but only when the hinted mode's WDR mode
+  and fps range match -- otherwise it matches on width, height and fps, so
+  the five fixed modes resolve with or without it. The index is what an
+  arbitrary-window mode (`IMX335_CROP_FLEX_LINEAR_MODE`) would need in order
+  to be selected at all. This is the one behaviour change the IMX662 path
+  sees.
 - **Every IMX335 mode runs on the native 37.125 MHz MCLK**, so the runtime
   sensor-clock parameter is not needed for any of them. The flexible
   window-crop mode (`IMX335_CROP_FLEX_LINEAR_MODE`, img_mode 5) is
-  implemented in the plugin but deliberately not advertised: the validator
+  implemented in the driver but deliberately not advertised: the validator
   cannot express an arbitrary window yet.
-- **`scripts/cv610_direct_deploy.sh`** brings the plugin onto a running craft
-  over a base64 hop, keeping one copy of the stock plugin for a one-reboot
-  revert.
+- **`scripts/cv610_direct_deploy.sh`** brings a staged bundle onto a running
+  craft over a base64 hop, keeping one copy of the stock plugin for a
+  one-reboot revert. It uploads the sensor plugin only when the bundle
+  carries one, which on IMX335 it does not: that part's plugin comes from the
+  image.
 
 Verified on a Hi3516CV610 with an IMX335: all five modes bring up, a 90 fps
 mode switch selects mode 2, the log names `> CV610 sensor: imx335 (from

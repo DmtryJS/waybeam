@@ -9,9 +9,10 @@
  * The table INDEX is load-bearing: it is written to the sensor's
  * sns_mode hint (via pub.sns_mode) and the plugin's cmos_isp_set_image_mode()
  * uses it to pick its own img_mode.  So each row must keep the same index as
- * the matching IMX335_*_MODE / IMX662_*_MODE enum in the plugin.  Only fixed
- * modes are listed; IMX335's flexible window crop (plugin img_mode 5) is
- * deliberately absent until its arbitrary-geometry bring-up is wired through.
+ * the matching IMX335_*_MODE / IMX662_*_MODE enum in the sensor driver.  Only
+ * fixed modes are listed; IMX335's flexible window crop (driver img_mode 5)
+ * is deliberately absent until its arbitrary-geometry bring-up is wired
+ * through.
  */
 
 /* ---- IMX662: 1920x1080, four rates --------------------------------------
@@ -35,7 +36,9 @@ static const Cv610SensorMode g_imx662_modes[] = {
 /* ---- IMX335: 2592x1944 and crops, five rates ---------------------------
  *
  * IMX335 runs natively on a 37.125 MHz MCLK, so every fixed mode shares the
- * same clock.  Indices match IMX335_*_MODE in the plugin's imx335_cmos.h:
+ * same clock.  Indices match IMX335_*_MODE in the driver's imx335_cmos.h
+ * (OpenIPC/openhisilicon, sony_imx335), whose mode_tbl[] is the other half
+ * of this table:
  *
  *   0 2592x1944 12-bit linear @30
  *   1 1296x972  10-bit 2x2 binning @60  (driver allows up to 76)
@@ -44,8 +47,10 @@ static const Cv610SensorMode g_imx662_modes[] = {
  *   4 2592x1520 10-bit crop @30
  *
  * The driver's cmos_isp_set_image_mode() takes the table index as its
- * sns_mode hint when the requested fps is inside the mode's own min..max, so
- * @30 is unambiguous between modes 0 and 4 even though they share a rate.
+ * sns_mode hint when the requested fps is inside the mode's own min..max and
+ * the WDR mode matches, and otherwise matches on width, height and fps -- so
+ * modes 0 and 4 stay apart either way.  The index is what the arbitrary-
+ * window mode (5) would need to be selected at all.
  *
  * These are the rates the timing reaches, not what the plugin's enum names
  * say: IMX335_60FPS_CROPPED_1080P_MODE runs at 90 and

@@ -4,9 +4,14 @@
 # Scope: this is a bring-up helper, NOT the distribution path.  A CV610 image
 # is meant to install waybeam from the firmware package
 # (general/package/waybeam in OpenIPC/firmware), which owns the file layout
-# and the init wiring.  This script exists so the sensor plugin can be
-# exercised on a craft that has no such package yet, and it retires with that
-# track.  Read it as scaffolding, not as the way waybeam reaches a camera.
+# and the init wiring.  This script exists so the daemon and, when the bundle
+# carries one, a rebuilt sensor plugin can be exercised on a craft that has no
+# such package yet, and it retires with that track.  Read it as scaffolding,
+# not as the way waybeam reaches a camera.
+#
+# The IMX335 plugin is not in this repository: it is the OpenIPC/openhisilicon
+# driver the hisilicon-opensdk package installs.  Deploying it is therefore
+# not this script's business, and a bundle without it still deploys.
 #
 # Like its siblings scripts/star6e_direct_deploy.sh and
 # scripts/maruko_direct_deploy.sh it deliberately does NOT install
@@ -62,10 +67,18 @@ SENSOR=${SENSOR:-imx662}
 SO="libsns_${SENSOR}.so"
 
 [ -f "$BUNDLE/waybeam" ] || { echo "ERROR: no $BUNDLE/waybeam (run make stage first)" >&2; exit 1; }
-[ -f "$BUNDLE/sensors/$SO" ] || { echo "ERROR: no $BUNDLE/sensors/$SO" >&2; exit 1; }
 [ -f "$BUNDLE/waybeam.json" ] || { echo "ERROR: no $BUNDLE/waybeam.json" >&2; exit 1; }
 
-echo "== deploy to $CAM: sensor=$SENSOR, plugin=$SO =="
+# A missing plugin is not an error any more: IMX335 is not built in this
+# repository, its .so comes from the image's hisilicon-opensdk package, and
+# overwriting that with nothing would be the bug.  IMX662 still ships here, so
+# a bundle that carries it is uploaded as before.
+SEND_SO=0
+if [ -f "$BUNDLE/sensors/$SO" ]; then
+	SEND_SO=1
+fi
+
+echo "== deploy to $CAM: sensor=$SENSOR, plugin=$SO $([ "$SEND_SO" = 1 ] && echo '(from bundle)' || echo '(from image)') =="
 
 # Keep one copy of the stock plugin so a bad bring-up is a single reboot back.
 # An absent source is not an error: a second run finds its own upload there,
@@ -115,7 +128,8 @@ upload() { # src dst mode
 }
 
 upload "$BUNDLE/waybeam"              /usr/bin/waybeam            0755
-upload "$BUNDLE/sensors/$SO"          /usr/lib/sensors/$SO        0644
+[ "$SEND_SO" = 1 ] && \
+	upload "$BUNDLE/sensors/$SO"  /usr/lib/sensors/$SO        0644
 upload "$BUNDLE/waybeam.json"         /etc/waybeam.json           0644
 [ -f "$BUNDLE/waybeam-cv610.conf" ] && \
 	upload "$BUNDLE/waybeam-cv610.conf" /etc/waybeam-cv610.conf  0644
@@ -123,4 +137,8 @@ upload "$BUNDLE/waybeam.json"         /etc/waybeam.json           0644
 $REMOTE 'sync'
 echo "  deployed and checksummed. Reboot to make the kernel reload the sensor plugin cleanly:"
 echo "    $SSH_BIN $SSH_OPTS root@$CAM reboot"
-echo "  Revert: cp /root/sensor-backup/$SO.stock /usr/lib/sensors/$SO && reboot"
+if [ "$SEND_SO" = 1 ]; then
+	echo "  Revert: cp /root/sensor-backup/$SO.stock /usr/lib/sensors/$SO && reboot"
+else
+	echo "  Revert: reinstall the device package that owns /usr/lib/sensors/$SO"
+fi

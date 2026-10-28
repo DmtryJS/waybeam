@@ -250,9 +250,11 @@ request.
 
 `src/cv610_sns.c` naming `imx335` — which the system reports for a craft with
 that part fitted — selects the second table, `g_imx335_modes[]`, and the
-plugin at `/usr/lib/sensors/libsns_imx335.so`. This part runs from the
-native 37.125 MHz MCLK and every fixed mode shares that clock, so no
-`sns0_clk_hz` write is needed for any of them:
+plugin at `/usr/lib/sensors/libsns_imx335.so`. That file is not built here:
+it is the `sony_imx335` driver from `OpenIPC/openhisilicon` (upstreamed as
+#270), installed by the firmware's `hisilicon-opensdk` package. This part
+runs from the native 37.125 MHz MCLK and every fixed mode shares that clock,
+so no `sns0_clk_hz` write is needed for any of them:
 
 | idx | capture | rate | RAW |
 |---|---|---|---|
@@ -262,18 +264,21 @@ native 37.125 MHz MCLK and every fixed mode shares that clock, so no
 | 3 | 2592x1944 | 40 | 10 |
 | 4 | 2592x1520 crop | 30 | 10 |
 
-These are the rates the T6 crop timing reaches. The plugin's
+These are the rates the T6 crop timing reaches. The driver's
 `IMX335_60FPS_*` enum names are historical and do not describe the rate:
-mode 2 runs at 90 fps and mode 3 at 40. Modes 0 and 4 share 30 fps, which is
-exactly why the resolved table index is handed to the sensor as
-`pub.sns_mode` — the frame rate alone cannot tell them apart.
-`IMX335_CROP_FLEX_LINEAR_MODE` (5) is implemented in the plugin but not
-advertised, because the validator cannot express an arbitrary window yet.
+mode 2 runs at 90 fps and mode 3 at 40. Modes 0 and 4 share 30 fps and are
+told apart by geometry, so the resolved table index handed to the sensor as
+`pub.sns_mode` is not what selects them — the driver matches on width,
+height and fps too. The index matters for the arbitrary-window mode:
+`IMX335_CROP_FLEX_LINEAR_MODE` (5) is implemented in the driver but not
+advertised, because the validator cannot express an arbitrary window yet,
+and that is the one mode only the hint can select.
 
-Unlike the IMX662 table, this one is not mirror-verified against a
-sensor-side original in the same repository: the driver came from the T6
-work (upstreamed to OpenIPC/openhisilicon as #270) and
-`sensors/cv610/imx335/README.md` records the provenance and the IQ caveats.
+Unlike the IMX662 table, this one has no sensor-side original in this
+repository — the pair is `g_imx335_modes[]` here and the driver's
+`mode_tbl[]` in `OpenIPC/openhisilicon` (`sony_imx335/imx335_cmos.c`), and
+the indices must agree because the driver's `img_mode` *is* that index.
+Moving the `hisilicon-opensdk` pin therefore means re-reading that table.
 
 ## Sensor clock
 

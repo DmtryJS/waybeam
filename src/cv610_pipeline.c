@@ -529,9 +529,12 @@ static int isp_setup(const Cv610PipelineRuntimeConfig *c)
 	 * driver comment warns about. */
 	pub.bayer_format    = (ot_isp_bayer_format)c->bayer;
 	pub.wdr_mode        = OT_WDR_MODE_NONE;
-	/* The mode table index, not zero.  IMX662's driver derives its img_mode
-	 * from fps and ignores this; IMX335's uses it as a hint so modes that
-	 * share a frame rate (2592x1944 @30 and 2592x1520 @30) stay exact. */
+	/* The mode table index, not the hardcoded 0 this used to be.  IMX335's
+	 * driver takes sns_mode as a hint and only when the hinted mode's WDR
+	 * mode and fps range also match, falling back to matching on width,
+	 * height and fps -- so the fixed modes resolve either way, and the index
+	 * is what an arbitrary-window mode would need to be selected at all.
+	 * IMX662's driver derives its img_mode from fps and ignores the field. */
 	pub.sns_mode        = (td_u32)c->mode_index;
 
 	/* Tell the ISP which registered 3A libs and which sensor this pipe uses;
