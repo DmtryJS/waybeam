@@ -186,7 +186,11 @@ static int test_mode_select(void)
  * must come up as that part. */
 static int test_sns_types(void)
 {
-	const char *orig = getenv("SENSOR");
+	/* Copy, do not keep the getenv pointer: the setenv() calls below may
+	 * invalidate the storage it points at, and the value is only needed again
+	 * at the restore point at the end. */
+	char orig[32] = "";
+	const char *env_sensor = getenv("SENSOR");
 	const Cv610SensorMode *m662;
 	Cv610SnsType t = SNS_TYPE_UNKNOWN;
 	Cv610SnsSource src = CV610_SRC_DEFAULT;
@@ -195,6 +199,8 @@ static int test_sns_types(void)
 	VencConfig cfg;
 	int failures = 0;
 
+	if (env_sensor != NULL)
+		snprintf(orig, sizeof(orig), "%s", env_sensor);
 	m662 = cv610_mode_table(SNS_TYPE_IMX662, &c662);
 	failures += expect("sns_662_table", m662 != NULL && c662 == 4);
 	failures += expect("sns_name_case_insensitive",
@@ -250,7 +256,7 @@ static int test_sns_types(void)
 	cfg.sensor.mode = 4;
 	failures += expect_valid("sns_validate_mode_past_table", &cfg, 0);
 	cfg.sensor.mode = -1;
-	if (orig != NULL)
+	if (orig[0] != '\0')
 		setenv("SENSOR", orig, 1);
 	else
 		unsetenv("SENSOR");
